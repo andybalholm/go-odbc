@@ -7,7 +7,6 @@ package driver
 import (
 	"database/sql"
 	"database/sql/driver"
-	"errors"
 	"io"
 	"github.com/weigj/go-odbc"
 )
@@ -87,7 +86,7 @@ func (s *stmt) Exec(args []driver.Value) (driver.Result, error) {
 	}
 
 	rowsAffected, err := s.st.RowsAffected()
-	r := &result{rowsAffected: int64(rowsAffected)}
+	r := driver.RowsAffected(rowsAffected)
 	return r, err
 }
 
@@ -106,18 +105,6 @@ func (s *stmt) Query(args []driver.Value) (driver.Rows, error) {
 func (s *stmt) Close() error {
 	s.st.Close()
 	return nil
-}
-
-type result struct {
-	rowsAffected int64
-}
-
-func (r *result) LastInsertId() (int64, error) {
-	return 0, errors.New("not supported")
-}
-
-func (r *result) RowsAffected() (int64, error) {
-	return r.rowsAffected, nil
 }
 
 type rows struct {
