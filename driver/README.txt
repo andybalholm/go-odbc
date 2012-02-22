@@ -9,7 +9,7 @@ package main
 
 import (
    "database/sql" 
-   _ "odbc/driver"
+   _ "github.com/weigj/go-odbc/driver"
    "fmt"
 )
 
