@@ -45,6 +45,7 @@ import "C"
 import (
 	"fmt"
 	"reflect"
+	"time"
 	"unsafe"
 )
 
@@ -54,9 +55,7 @@ const (
 )
 
 var (
-	Genv            C.SQLHANDLE
-	SQL_NULL_HANDLE C.SQLHANDLE
-	Debug           bool = false
+	Genv C.SQLHANDLE
 )
 
 type Connection struct {
@@ -84,23 +83,20 @@ func (e *ODBCError) Error() string {
 
 func (e *ODBCError) String() string {
 	if e != nil {
-		// return e.SQLState + " " + string(e.NativeError) + " " + e.ErrorMessage
-		return string(e.NativeError)
+		return e.SQLState + " " + e.ErrorMessage
 	}
 	return ""
 }
 
 func initEnv() (err *ODBCError) {
-	ret := C.SQLAllocHandle(C.SQL_HANDLE_ENV, SQL_NULL_HANDLE, &Genv)
+	ret := C.SQLAllocHandle(C.SQL_HANDLE_ENV, nil, &Genv)
 	if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_ENV, Genv, int(ret))
-		debugPrint("ERROR:", err)
+		err := FormatError(C.SQL_HANDLE_ENV, Genv)
 		return err
 	}
 	ret = C.SQLSetEnvAttr(C.SQLHENV(Genv), C.SQL_ATTR_ODBC_VERSION, C.SQLPOINTER(unsafe.Pointer(uintptr(C.SQL_OV_ODBC3))), C.SQLINTEGER(0))
 	if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_ENV, Genv, int(ret))
-		debugPrint("ERROR:", err)
+		err := FormatError(C.SQL_HANDLE_ENV, Genv)
 		return err
 	}
 	return nil
@@ -110,8 +106,7 @@ func Connect(dsn string, params ...interface{}) (conn *Connection, err *ODBCErro
 	var h C.SQLHANDLE
 	ret := C.SQLAllocHandle(C.SQL_HANDLE_DBC, Genv, &h)
 	if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_DBC, h, int(ret))
-		debugPrint("SQLAllocHandle ERROR=", err)
+		err := FormatError(C.SQL_HANDLE_DBC, h)
 		return nil, err
 	}
 
@@ -129,8 +124,7 @@ func Connect(dsn string, params ...interface{}) (conn *Connection, err *ODBCErro
 		C.SQL_DRIVER_NOPROMPT)
 
 	if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_DBC, h, int(ret))
-		debugPrint("SQLDriverConnect ERROR=", err)
+		err := FormatError(C.SQL_HANDLE_DBC, h)
 		return nil, err
 	}
 	return &Connection{Dbc: h, connected: true}, nil
@@ -143,8 +137,7 @@ func (conn *Connection) ExecDirect(sql string) (stmt *Statement, err *ODBCError)
 	wsql := StringToUTF16Ptr(sql)
 	ret := C.SQLExecDirectW(C.SQLHSTMT(stmt.handle), (*C.SQLWCHAR)(unsafe.Pointer(wsql)), C.SQL_NTS)
 	if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle, int(ret))
-		debugPrint("SQLExecDirectW Error", err)
+		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle)
 		stmt.Close()
 		return nil, err
 	}
@@ -157,8 +150,7 @@ func (conn *Connection) newStmt() (*Statement, *ODBCError) {
 
 	ret := C.SQLAllocHandle(C.SQL_HANDLE_STMT, conn.Dbc, &stmt.handle)
 	if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_DBC, conn.Dbc, int(ret))
-		debugPrint("Commit Error", err)
+		err := FormatError(C.SQL_HANDLE_DBC, conn.Dbc)
 		return nil, err
 	}
 	return stmt, nil
@@ -172,8 +164,7 @@ func (conn *Connection) Prepare(sql string, params ...interface{}) (*Statement, 
 	}
 	ret := C.SQLPrepareW(C.SQLHSTMT(stmt.handle), (*C.SQLWCHAR)(unsafe.Pointer(wsql)), C.SQLINTEGER(len(sql)))
 	if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle, int(ret))
-		debugPrint("Prepare Error", err)
+		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle)
 		stmt.Close()
 		return nil, err
 	}
@@ -181,15 +172,10 @@ func (conn *Connection) Prepare(sql string, params ...interface{}) (*Statement, 
 	return stmt, nil
 }
 
-//func (conn *Connection) Query(sql string, params ...interface{}) (stmt *Statement, err *ODBCError) {
-//	//TODO 
-//}
-
 func (conn *Connection) Commit() (err *ODBCError) {
 	ret := C.SQLEndTran(C.SQL_HANDLE_DBC, conn.Dbc, C.SQL_COMMIT)
 	if !Success(ret) {
-		err = FormatError(C.SQL_HANDLE_DBC, conn.Dbc, int(ret))
-		debugPrint("Commit Error", err)
+		err = FormatError(C.SQL_HANDLE_DBC, conn.Dbc)
 	}
 	return
 }
@@ -203,8 +189,7 @@ func (conn *Connection) AutoCommit(b bool) (err *ODBCError) {
 	}
 	ret := C.SQLSetConnectAttr(C.SQLHDBC(conn.Dbc), C.SQL_ATTR_AUTOCOMMIT, C.SQLPOINTER(unsafe.Pointer(uintptr(n))), C.SQL_IS_UINTEGER)
 	if !Success(ret) {
-		err = FormatError(C.SQL_HANDLE_DBC, conn.Dbc, int(ret))
-		debugPrint("Commit Error", err)
+		err = FormatError(C.SQL_HANDLE_DBC, conn.Dbc)
 	}
 	return
 }
@@ -212,8 +197,7 @@ func (conn *Connection) AutoCommit(b bool) (err *ODBCError) {
 func (conn *Connection) BeginTransaction() (err *ODBCError) {
 	ret := C.SQLSetConnectAttr(C.SQLHDBC(conn.Dbc), C.SQL_ATTR_AUTOCOMMIT, C.SQLPOINTER(unsafe.Pointer(uintptr(C.SQL_AUTOCOMMIT_OFF))), C.SQL_IS_UINTEGER)
 	if !Success(ret) {
-		err = FormatError(C.SQL_HANDLE_DBC, conn.Dbc, int(ret))
-		debugPrint("BeginTransaction Error", err)
+		err = FormatError(C.SQL_HANDLE_DBC, conn.Dbc)
 	}
 	return
 }
@@ -221,8 +205,7 @@ func (conn *Connection) BeginTransaction() (err *ODBCError) {
 func (conn *Connection) Rollback() (err *ODBCError) {
 	ret := C.SQLEndTran(C.SQL_HANDLE_DBC, conn.Dbc, C.SQL_ROLLBACK)
 	if !Success(ret) {
-		err = FormatError(C.SQL_HANDLE_DBC, conn.Dbc, int(ret))
-		debugPrint("SQLEndTran Error", err)
+		err = FormatError(C.SQL_HANDLE_DBC, conn.Dbc)
 	}
 	return
 }
@@ -232,22 +215,19 @@ func (conn *Connection) ServerInfo() (string, string, string, *ODBCError) {
 	p := make([]byte, INFO_BUFFER_LEN)
 	ret := C.SQLGetInfo(C.SQLHDBC(conn.Dbc), C.SQL_DATABASE_NAME, C.SQLPOINTER(unsafe.Pointer(&p[0])), INFO_BUFFER_LEN, &info_len)
 	if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_DBC, conn.Dbc, int(ret))
-		debugPrint("SQLGetInfo ERROR=", err)
+		err := FormatError(C.SQL_HANDLE_DBC, conn.Dbc)
 		return "", "", "", err
 	}
 	db := string(p[0:info_len])
 	ret = C.SQLGetInfo(C.SQLHDBC(conn.Dbc), C.SQL_DBMS_VER, C.SQLPOINTER(unsafe.Pointer(&p[0])), INFO_BUFFER_LEN, &info_len)
 	if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_DBC, conn.Dbc, int(ret))
-		debugPrint("SQLGetInfo ERROR=", err)
+		err := FormatError(C.SQL_HANDLE_DBC, conn.Dbc)
 		return db, "", "", err
 	}
 	ver := string(p[0:info_len])
 	ret = C.SQLGetInfo(C.SQLHDBC(conn.Dbc), C.SQL_SERVER_NAME, C.SQLPOINTER(unsafe.Pointer(&p[0])), INFO_BUFFER_LEN, &info_len)
 	if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_DBC, conn.Dbc, int(ret))
-		debugPrint("SQLGetInfo ERROR=", err)
+		err := FormatError(C.SQL_HANDLE_DBC, conn.Dbc)
 		return db, ver, "", err
 	}
 	server := string(p[0:info_len])
@@ -259,22 +239,19 @@ func (conn *Connection) ClientInfo() (string, string, string, *ODBCError) {
 	p := make([]byte, INFO_BUFFER_LEN)
 	ret := C.SQLGetInfo(C.SQLHDBC(conn.Dbc), C.SQL_DRIVER_NAME, C.SQLPOINTER(unsafe.Pointer(&p[0])), INFO_BUFFER_LEN, &info_len)
 	if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_DBC, conn.Dbc, int(ret))
-		debugPrint("SQLGetInfo ERROR=", err)
+		err := FormatError(C.SQL_HANDLE_DBC, conn.Dbc)
 		return "", "", "", err
 	}
 	drv_name := string(p[0:info_len])
 	ret = C.SQLGetInfo(C.SQLHDBC(conn.Dbc), C.SQL_DRIVER_ODBC_VER, C.SQLPOINTER(unsafe.Pointer(&p[0])), INFO_BUFFER_LEN, &info_len)
 	if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_DBC, conn.Dbc, int(ret))
-		debugPrint("SQLGetInfo ERROR=", err)
+		err := FormatError(C.SQL_HANDLE_DBC, conn.Dbc)
 		return "", "", "", err
 	}
 	drv_odbc_ver := string(p[0:info_len])
 	ret = C.SQLGetInfo(C.SQLHDBC(conn.Dbc), C.SQL_DRIVER_VER, C.SQLPOINTER(unsafe.Pointer(&p[0])), INFO_BUFFER_LEN, &info_len)
 	if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_DBC, conn.Dbc, int(ret))
-		debugPrint("SQLGetInfo ERROR=", err)
+		err := FormatError(C.SQL_HANDLE_DBC, conn.Dbc)
 		return "", "", "", err
 	}
 	drv_ver := string(p[0:info_len])
@@ -285,13 +262,13 @@ func (conn *Connection) Close() *ODBCError {
 	if conn.connected {
 		ret := C.SQLDisconnect(C.SQLHDBC(conn.Dbc))
 		if !Success(ret) {
-			err := FormatError(C.SQL_HANDLE_DBC, conn.Dbc, int(ret))
-			debugPrint("SQLDisconnect Error=", err)
+			err := FormatError(C.SQL_HANDLE_DBC, conn.Dbc)
 			return err
 		}
 		ret = C.SQLFreeHandle(C.SQL_HANDLE_DBC, conn.Dbc)
 		if !Success(ret) {
-			debugPrint("SQLFreeHandle Error=", ret)
+			err := FormatError(C.SQL_HANDLE_DBC, conn.Dbc)
+			return err
 		}
 		conn.connected = false
 	}
@@ -302,8 +279,7 @@ func (stmt *Statement) RowsAffected() (int, *ODBCError) {
 	var nor C.SQLLEN
 	ret := C.SQLRowCount(C.SQLHSTMT(stmt.handle), &nor)
 	if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle, int(ret))
-		debugPrint("SQLRowCount Error", err)
+		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle)
 		return -1, err
 	}
 	return int(nor), nil
@@ -312,8 +288,7 @@ func (stmt *Statement) RowsAffected() (int, *ODBCError) {
 func (stmt *Statement) Cancel() *ODBCError {
 	ret := C.SQLCancel(C.SQLHSTMT(stmt.handle))
 	if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle, int(ret))
-		debugPrint("Cancel Error", err)
+		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle)
 		return err
 	}
 	return nil
@@ -333,8 +308,7 @@ func (stmt *Statement) Execute(params ...interface{}) *ODBCError {
 		var cParams C.SQLSMALLINT
 		ret := C.SQLNumParams(C.SQLHSTMT(stmt.handle), &cParams)
 		if !Success(ret) {
-			err := FormatError(C.SQL_HANDLE_STMT, stmt.handle, int(ret))
-			debugPrint("SQLNumParams Error", err)
+			err := FormatError(C.SQL_HANDLE_STMT, stmt.handle)
 			return err
 		}
 		for i := 0; i < int(cParams); i++ {
@@ -343,14 +317,12 @@ func (stmt *Statement) Execute(params ...interface{}) *ODBCError {
 	}
 	ret := C.SQLExecute(C.SQLHSTMT(stmt.handle))
 	if ret == C.SQL_NEED_DATA {
-		debugPrint("Execute NEED DATA")
 		// TODO
 		//		send_data(stmt)
 	} else if ret == C.SQL_NO_DATA {
-		debugPrint("Execute NO DATA")
+		// Execute NO DATA
 	} else if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle, int(ret))
-		debugPrint("Execute Error", ret, err)
+		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle)
 		return err
 	}
 	stmt.executed = true
@@ -363,8 +335,7 @@ func (stmt *Statement) Fetch() (bool, *ODBCError) {
 		return false, nil
 	}
 	if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle, int(ret))
-		debugPrint("Fetch Error", err)
+		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle)
 		return false, err
 	}
 	return true, nil
@@ -459,45 +430,76 @@ func (stmt *Statement) GetField(field_index int) (v interface{}, ftype int, flen
 	var ll C.SQLSMALLINT
 	ret := C._SQLColAttribute(C.SQLHSTMT(stmt.handle), C.SQLUSMALLINT(field_index+1), C.SQL_DESC_CONCISE_TYPE, C.SQLPOINTER(unsafe.Pointer(uintptr(0))), C.SQLSMALLINT(0), &ll, unsafe.Pointer(&field_type))
 	if !Success(ret) {
-		debugPrint("GetFiled type Error")
+		// TODO return err
 	}
 	ret = C._SQLColAttribute(C.SQLHSTMT(stmt.handle), C.SQLUSMALLINT(field_index+1), C.SQL_DESC_LENGTH, C.SQLPOINTER(unsafe.Pointer(uintptr(0))), C.SQLSMALLINT(0), &ll, unsafe.Pointer(&field_len))
 	if !Success(ret) {
-		debugPrint("GetFiled len Error")
+		// TODO return err
 	}
 	var fl C.SQLLEN = C.SQLLEN(field_len)
 	switch int(field_type) {
-	case C.SQL_BIT, C.SQL_INTEGER, C.SQL_SMALLINT, C.SQL_TINYINT:
-		var value C.HANDLE
+	case C.SQL_BIT:
+		var value C.BYTE
+		ret = C.SQLGetData(C.SQLHSTMT(stmt.handle), C.SQLUSMALLINT(field_index+1), C.SQL_C_BIT, C.SQLPOINTER(unsafe.Pointer(&value)), 0, &fl)
+		if fl == -1 {
+			v = nil
+		} else {
+			v = byte(value)
+		}
+	case C.SQL_INTEGER, C.SQL_SMALLINT, C.SQL_TINYINT:
+		var value C.long
 		ret = C.SQLGetData(C.SQLHSTMT(stmt.handle), C.SQLUSMALLINT(field_index+1), C.SQL_C_LONG, C.SQLPOINTER(unsafe.Pointer(&value)), 0, &fl)
 		if fl == -1 {
 			v = nil
 		} else {
-			v = value
+			v = int(value)
 		}
-	case C.SQL_FLOAT, C.SQL_REAL:
+	case C.SQL_BIGINT:
+		var value C.longlong
+		ret = C.SQLGetData(C.SQLHSTMT(stmt.handle), C.SQLUSMALLINT(field_index+1), C.SQL_C_SBIGINT, C.SQLPOINTER(unsafe.Pointer(&value)), 0, &fl)
+		if fl == -1 {
+			v = nil
+		} else {
+			v = int64(value)
+		}
+	case C.SQL_FLOAT, C.SQL_REAL, C.SQL_DOUBLE:
 		var value C.double
 		ret = C.SQLGetData(C.SQLHSTMT(stmt.handle), C.SQLUSMALLINT(field_index+1), C.SQL_C_DOUBLE, C.SQLPOINTER(unsafe.Pointer(&value)), 0, &fl)
 		if fl == -1 {
 			v = nil
 		} else {
-			v = value
+			v = float64(value)
 		}
-	case C.SQL_WCHAR, C.SQL_WVARCHAR, C.SQL_WLONGVARCHAR:
+	case C.SQL_CHAR, C.SQL_VARCHAR, C.SQL_LONGVARCHAR, C.SQL_WCHAR, C.SQL_WVARCHAR, C.SQL_WLONGVARCHAR:
 		value := make([]uint16, int(field_len)+8)
 		ret = C.SQLGetData(C.SQLHSTMT(stmt.handle), C.SQLUSMALLINT(field_index+1), C.SQL_C_WCHAR, C.SQLPOINTER(unsafe.Pointer(&value[0])), field_len+4, &fl)
 		s := UTF16ToString(value)
 		v = s
+	case C.SQL_TYPE_TIMESTAMP, C.SQL_TYPE_DATE, C.SQL_TYPE_TIME, C.SQL_DATETIME:
+		var value C.TIMESTAMP_STRUCT
+		ret = C.SQLGetData(C.SQLHSTMT(stmt.handle), C.SQLUSMALLINT(field_index+1), C.SQL_C_TYPE_TIMESTAMP, C.SQLPOINTER(unsafe.Pointer(&value)), C.SQLLEN(unsafe.Sizeof(value)), &fl)
+		if fl == -1 {
+			v = nil
+		} else {
+			v = time.Date(int(value.year), time.Month(value.month), int(value.day), int(value.hour), int(value.minute), int(value.second), int(value.fraction), time.UTC)
+		}
+	case C.SQL_BINARY, C.SQL_VARBINARY, C.SQL_LONGVARBINARY:
+		var vv int
+		ret = C.SQLGetData(C.SQLHSTMT(stmt.handle), C.SQLUSMALLINT(field_index+1), C.SQL_C_BINARY, C.SQLPOINTER(unsafe.Pointer(&vv)), 0, &fl)
+		if fl == -1 {
+			v = nil
+		} else {
+			value := make([]byte, fl)
+			ret = C.SQLGetData(C.SQLHSTMT(stmt.handle), C.SQLUSMALLINT(field_index+1), C.SQL_C_BINARY, C.SQLPOINTER(unsafe.Pointer(&value[0])), C.SQLLEN(fl), &fl)
+			v = value
+		}
 	default:
-		value := make([]byte, int(fl)+2)
-		ret = C.SQLGetData(C.SQLHSTMT(stmt.handle), C.SQLUSMALLINT(field_index+1), C.SQL_C_CHAR, C.SQLPOINTER(unsafe.Pointer(&value[0])), field_len+4, &fl)
-		s := string(value[0:])
-		v = s
-		debugPrint("default type", value, fl, s)
+		value := make([]byte, field_len)
+		ret = C.SQLGetData(C.SQLHSTMT(stmt.handle), C.SQLUSMALLINT(field_index+1), C.SQL_C_BINARY, C.SQLPOINTER(unsafe.Pointer(&value[0])), field_len, &fl)
+		v = value
 	}
 	if !Success(ret) {
-		err = FormatError(C.SQL_HANDLE_STMT, stmt.handle, int(ret))
-		debugPrint("GetFiled Data Error", err)
+		err = FormatError(C.SQL_HANDLE_STMT, stmt.handle)
 	}
 	return v, int(field_type), int(fl), err
 }
@@ -506,8 +508,7 @@ func (stmt *Statement) NumFields() (int, *ODBCError) {
 	var NOC C.SQLSMALLINT
 	ret := C.SQLNumResultCols(C.SQLHSTMT(stmt.handle), &NOC)
 	if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle, int(ret))
-		debugPrint("NumFields Error", err)
+		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle)
 		return -1, err
 	}
 	return int(NOC), nil
@@ -518,8 +519,7 @@ func (stmt *Statement) GetParamType(index int) (int, int, int, int, *ODBCError) 
 	var size_ptr C.SQLULEN
 	ret := C.SQLDescribeParam(C.SQLHSTMT(stmt.handle), C.SQLUSMALLINT(index), &data_type, &size_ptr, &dec_ptr, &null_ptr)
 	if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle, int(ret))
-		debugPrint("GetParamType Error", err)
+		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle)
 		return -1, -1, -1, -1, err
 	}
 	return int(data_type), int(size_ptr), int(dec_ptr), int(null_ptr), nil
@@ -596,33 +596,17 @@ func (stmt *Statement) BindParam(index int, param interface{}) *ODBCError {
 			BufferLength = C.SQLLEN(slen + 1)
 			StrLen_or_IndPt = C.SQLLEN(slen)
 		default:
-			debugPrint("Not support type", v)
+			fmt.Println("Not support type", v)
 		}
 	}
 	ret := C.SQLBindParameter(C.SQLHSTMT(stmt.handle), C.SQLUSMALLINT(index), C.SQL_PARAM_INPUT, ValueType, ParameterType, ColumnSize, DecimalDigits, ParameterValuePtr, BufferLength, &StrLen_or_IndPt)
 	if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle, int(ret))
-		debugPrint("SQLBindParameter Error", err)
+		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle)
 		return err
 	}
 
 	return nil
 }
-
-//func (stmt *Statement) BindCol(col int, data interface{}, buff_indicator int) *ODBCError {
-//	// TODO
-//	switch f := data.(type) {
-//	case bool: //1 SQL_BIT
-//	case int: //4
-//	case string:
-//	case float: //4
-//	case float64: //8
-//	case complex: //8
-//	default:
-//	}
-//	//ret := C.SQLBindCol(C.SQLHSTMT(stmt.handle), col, C.SQL_C_CHAR, &data, len(data), &buff_indicator)
-//	return nil
-//}
 
 func (stmt *Statement) NextResult() bool {
 	ret := C.SQLMoreResults(C.SQLHSTMT(stmt.handle))
@@ -636,8 +620,7 @@ func (stmt *Statement) NumRows() (int, *ODBCError) {
 	var NOR C.SQLLEN
 	ret := C.SQLRowCount(C.SQLHSTMT(stmt.handle), &NOR)
 	if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle, int(ret))
-		debugPrint("SQLRowCount Error", err)
+		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle)
 		return -1, err
 	}
 	return int(NOR), nil
@@ -674,8 +657,7 @@ func (stmt *Statement) FieldMetadata(col int) (*Field, *ODBCError) {
 		&DecimalDigits,
 		&Nullable)
 	if !Success(ret) {
-		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle, int(ret))
-		debugPrint("SQLDescribeCol Error", err)
+		err := FormatError(C.SQL_HANDLE_STMT, stmt.handle)
 		return nil, err
 	}
 	field := &Field{string(ColumnName[0:NameLength]), int(DataType), int(ColumnSize), int(DecimalDigits), int(Nullable)}
@@ -694,50 +676,34 @@ func Success(ret C.SQLRETURN) bool {
 	return int(ret) == C.SQL_SUCCESS || int(ret) == C.SQL_SUCCESS_WITH_INFO
 }
 
-func FormatError(ht C.SQLSMALLINT, h C.SQLHANDLE, val_ret int) (err *ODBCError) {
-	sqlState := make([]byte, 6)
+func FormatError(ht C.SQLSMALLINT, h C.SQLHANDLE) (err *ODBCError) {
+	sqlState := make([]uint16, 6)
 	var nativeError C.SQLINTEGER
-	messageText := make([]byte, BUFFER_SIZE*10)
+	messageText := make([]uint16, C.SQL_MAX_MESSAGE_LENGTH)
 	var textLength C.SQLSMALLINT
-	debugPrint("FormatError", val_ret)
+	err = &ODBCError{}
+	i := 0
 	for {
-		ret := C.SQLGetDiagRec(C.SQLSMALLINT(ht),
+		i++
+		ret := C.SQLGetDiagRecW(C.SQLSMALLINT(ht),
 			h,
-			C.SQLSMALLINT(val_ret),
-			(*C.SQLCHAR)(unsafe.Pointer(&sqlState[0])),
+			C.SQLSMALLINT(i),
+			(*C.SQLWCHAR)(unsafe.Pointer(&sqlState[0])),
 			&nativeError,
-			(*C.SQLCHAR)(unsafe.Pointer(&messageText[0])),
-			BUFFER_SIZE*2,
+			(*C.SQLWCHAR)(unsafe.Pointer(&messageText[0])),
+			C.SQL_MAX_MESSAGE_LENGTH,
 			&textLength)
-		switch ret {
-		case C.SQL_INVALID_HANDLE:
-			debugPrint("SQL_INVALID_HANDLE")
-			err = &ODBCError{SQLState: string(sqlState), NativeError: int(nativeError), ErrorMessage: "SQL_INVALID_HANDLE"}
-		case C.SQL_NO_DATA:
-		case C.SQL_SUCCESS:
-			debugPrint("SQL_SUCCESS")
-			err = &ODBCError{SQLState: string(sqlState), NativeError: int(nativeError), ErrorMessage: string(messageText)}
-			continue
-		case C.SQL_SUCCESS_WITH_INFO:
-			debugPrint("SQLGetDiagRec => SQL_SUCCESS_WITH_INFO")
-			err = &ODBCError{SQLState: string(sqlState), NativeError: int(nativeError), ErrorMessage: "SQL_SUCCESS_WITH_INFO"}
-		case C.SQL_ERROR:
-			debugPrint("SQLGetDiagRec => SQL_ERROR", sqlState, nativeError, messageText)
-			err = &ODBCError{SQLState: string(sqlState), NativeError: int(nativeError), ErrorMessage: "SQL_ERROR"}
-		default:
-			debugPrint("SQLGetDiagRec => OTHER_ERROR")
-			err = &ODBCError{SQLState: string(sqlState), NativeError: int(nativeError), ErrorMessage: "OTHER_SQL_ERROR"}
+		if ret == C.SQL_INVALID_HANDLE || ret == C.SQL_NO_DATA {
+			break
 		}
-		break
+		if i == 1 { // first error message save the SQLSTATE.
+			err.SQLState = UTF16ToString(sqlState)
+			err.NativeError = int(nativeError)
+		}
+		err.ErrorMessage += UTF16ToString(messageText)
 	}
 
 	return err
-}
-
-func debugPrint(a ...interface{}) {
-	if Debug {
-		fmt.Println(a...)
-	}
 }
 
 func init() {
